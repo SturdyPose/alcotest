@@ -1,0 +1,32 @@
+(executable
+ (name nullexception)
+ (libraries alcotest)
+ (foreign_stubs
+  (language c)
+  (names nullexceptionstub))
+ )
+
+(rule
+ (target stubs.actual)
+ (action
+  (with-outputs-to
+   %{target}
+   (run %{dep:nullexception.exe} --color=auto))))
+
+(rule
+ (alias run-stuff)
+ (action
+   (run %{dep:nullexception.exe} --color=auto)))
+
+(rule
+ (target stubs.processed)
+ (action
+  (with-outputs-to
+   %{target}
+   (run ../../strip_randomness.exe %{dep:stubs.actual}))))
+
+(rule
+ (alias runtest)
+ (package alcotest)
+ (action
+  (diff stubs.expected stubs.processed)))

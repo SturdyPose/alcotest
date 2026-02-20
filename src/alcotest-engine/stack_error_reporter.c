@@ -1,0 +1,197 @@
+// caml headers
+#include <caml/alloc.h>
+#include <caml/callback.h>
+#include <caml/config.h>
+#include <caml/custom.h>
+#include <caml/fail.h>
+#include <caml/intext.h>
+#include <caml/memory.h>
+#include <caml/misc.h>
+#include <caml/mlvalues.h>
+
+#include <excpt.h>
+#include <stdarg.h>
+#include <stdio.h>
+#include <stdlib.h>
+
+typedef struct {
+  char *buffer;
+  size_t capacity;
+  size_t offset;
+} StackTraceBuffer;
+
+void append_to_buffer(StackTraceBuffer *sb, const char *format, ...) {
+  if (sb->offset >= sb->capacity)
+    return; // Buffer full
+
+  va_list args;
+  va_start(args, format);
+
+  size_t remaining = sb->capacity - sb->offset;
+  int written = vsnprintf(sb->buffer + sb->offset, remaining, format, args);
+
+  va_end(args);
+
+  if (written > 0) {
+    if ((size_t)written < remaining) {
+      sb->offset += written;
+    } else {
+      // Truncated or filled exactly; ensure null termination at the end
+      sb->offset = sb->capacity - 1;
+      sb->buffer[sb->offset] = '\0';
+    }
+  }
+}
+
+#if defined(_WIN32) || defined(_WIN64)
+#define PLATFORM_WINDOWS
+#include <windows.h>
+#include <dbghelp.h>
+
+void create_stacktrace(StackTraceBuffer* pStackTraceBuffer)
+{
+    HANDLE       process = GetCurrentProcess();
+    HANDLE       thread  = GetCurrentThread();
+    CONTEXT      context;
+    STACKFRAME64 stack;
+    DWORD        machine_type;
+
+    RtlCaptureContext(&context);
+
+    ZeroMemory(&stack, sizeof(STACKFRAME64));
+
+#ifdef _M_IX86
+    machine_type           = IMAGE_FILE_MACHINE_I386;
+    stack.AddrPC.Offset    = context.Eip;
+    stack.AddrFrame.Offset = context.Ebp;
+    stack.AddrStack.Offset = context.Esp;
+#elif _M_X64
+    machine_type           = IMAGE_FILE_MACHINE_AMD64;
+    stack.AddrPC.Offset    = context.Rip;
+    stack.AddrFrame.Offset = context.Rsp;
+    stack.AddrStack.Offset = context.Rsp;
+#elif _M_ARM64
+    machine_type           = IMAGE_FILE_MACHINE_ARM64;
+    stack.AddrPC.Offset    = context.Pc;
+    stack.AddrFrame.Offset = context.Fp;
+    stack.AddrStack.Offset = context.Sp;
+#else
+#error "Unsupported platform"
+#endif
+
+    stack.AddrPC.Mode    = AddrModeFlat;
+    stack.AddrFrame.Mode = AddrModeFlat;
+    stack.AddrStack.Mode = AddrModeFlat;
+
+    SymInitialize(process, NULL, TRUE);
+    SymSetOptions(SYMOPT_LOAD_LINES | SYMOPT_UNDNAME);
+
+    append_to_buffer(pStackTraceBuffer, "Stack trace:\n");
+    append_to_buffer(pStackTraceBuffer, "    %-40s %-18s %s\n", "Function", "Address", "Line");
+    append_to_buffer(pStackTraceBuffer, "    %-40s %-18s %s\n", "--------", "-------", "----");
+
+    while (StackWalk64(
+        machine_type,
+        process,
+        thread,
+        &stack,
+        &context,
+        NULL,
+        SymFunctionTableAccess64,
+        SymGetModuleBase64,
+        NULL)) {
+        if (stack.AddrPC.Offset == 0)
+            break;
+
+        DWORD64 symbol_addr  = stack.AddrPC.Offset;
+        DWORD64 displacement = 0;
+        char symbol_buffer[sizeof(SYMBOL_INFO) + MAX_SYM_NAME * sizeof(TCHAR)] = {0};
+        SYMBOL_INFO *symbol  = (SYMBOL_INFO *)symbol_buffer;
+        symbol->SizeOfStruct = sizeof(SYMBOL_INFO);
+        symbol->MaxNameLen   = MAX_SYM_NAME;
+
+        // Get line information
+        IMAGEHLP_LINE64 line = {0};
+        line.SizeOfStruct = sizeof(IMAGEHLP_LINE64);
+        DWORD line_displacement = 0;
+        BOOL has_line = SymGetLineFromAddr64(process, symbol_addr, &line_displacement, &line);
+
+        char function_name[MAX_SYM_NAME] = "Unknown";
+        if (SymFromAddr(process, symbol_addr, &displacement, symbol)) {
+            strncpy(function_name, symbol->Name, MAX_SYM_NAME - 1);
+            function_name[MAX_SYM_NAME - 1] = '\0'; // Ensure null termination
+        }
+        // Format line information
+        char line_info[256] = "Unknown";
+        if (has_line) {
+            snprintf(line_info, sizeof(line_info), "%s:%lu", line.FileName, line.LineNumber);
+        }
+
+        // Print with better alignment using format specifiers
+        append_to_buffer(pStackTraceBuffer, 
+            "    %-40.40s 0x%016llX %s\n",
+               function_name,
+               symbol_addr,
+               line_info);
+        append_to_buffer(pStackTraceBuffer, "\0");
+
+    }
+
+    SymCleanup(process);
+}
+
+
+LONG WINAPI windows_exception_handler(PEXCEPTION_POINTERS pExceptionInfo) {
+    const DWORD exceptionCode = pExceptionInfo->ExceptionRecord->ExceptionCode;
+    switch(exceptionCode) {
+        case EXCEPTION_ACCESS_VIOLATION:
+        {
+            void* faulting_address = (void*)pExceptionInfo->ExceptionRecord->ExceptionInformation[1];
+            StackTraceBuffer stack_trace_buffer;
+            const size_t buffer_size = 1024 * 10;
+            char *error_buffer = (char *)malloc(buffer_size);
+            if (error_buffer == NULL)
+            {
+                caml_failwith("Malloc failed to allocate memory for exception stack trace");
+                return EXCEPTION_CONTINUE_SEARCH;
+            }
+            stack_trace_buffer.capacity = buffer_size;
+            stack_trace_buffer.offset = 0;
+            stack_trace_buffer.buffer = error_buffer;
+            stack_trace_buffer.buffer[0] = '0';
+            create_stacktrace(&stack_trace_buffer);
+
+            // printf("Printing stacktrace...\n");
+            // printf("%s\n", stack_trace_buffer.buffer);
+
+            caml_raise_with_string(*caml_named_value("segfault exception"), stack_trace_buffer.buffer); 
+            free(stack_trace_buffer.buffer);
+        }
+        default: break;
+    }
+    return EXCEPTION_CONTINUE_SEARCH; 
+}
+#else
+#define PLATFORM_UNIX
+#include <signal.h>
+  void unix_signal_handler(int sig, siginfo_t *si, void *unused) {
+    caml_failwith("Exception occured");
+    _exit(1);
+  }
+#endif
+
+
+CAMLprim value caml_setup_stub_exception_handler() 
+{
+  CAMLparam0();
+#ifdef PLATFORM_WINDOWS
+  AddVectoredExceptionHandler(1, windows_exception_handler);
+#elif defined(PLATFORM_UNIX)
+  struct sigaction sa;
+  sa.sa_flags = SA_SIGINFO;
+  sigemptyset(&sa.sa_mask);
+  sa.sa_sigaction = unix_signal_handler;
+  sigaction(SIGSEGV, &sa, NULL);
+#endif
+  CAMLreturn(Val_unit);
+}
