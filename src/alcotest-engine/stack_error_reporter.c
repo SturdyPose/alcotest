@@ -9,16 +9,30 @@
 #include <caml/misc.h>
 #include <caml/mlvalues.h>
 
-#include <excpt.h>
 #include <stdarg.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 
+const size_t buffer_size = 1024 * 10;
 typedef struct {
   char *buffer;
   size_t capacity;
   size_t offset;
 } StackTraceBuffer;
+
+bool finit_stack_trace_buffer(StackTraceBuffer* pStackTraceBuffer, size_t size)
+{
+  char *error_buffer = (char *)malloc(size);
+  if (error_buffer == NULL) {
+    return false;
+  }
+  pStackTraceBuffer->capacity = size;
+  pStackTraceBuffer->offset = 0;
+  pStackTraceBuffer->buffer = error_buffer;
+  pStackTraceBuffer->buffer[0] = '0';
+  return true;
+}
 
 void append_to_buffer(StackTraceBuffer *sb, const char *format, ...) {
   if (sb->offset >= sb->capacity)
@@ -47,6 +61,7 @@ static const char *CAML_ERROR_ID = "segfault exception";
 
 #if defined(_WIN32) || defined(_WIN64)
 #define PLATFORM_WINDOWS
+#include <excpt.h>
 #include <windows.h>
 #include <dbghelp.h>
 
@@ -150,17 +165,11 @@ LONG WINAPI windows_exception_handler(PEXCEPTION_POINTERS pExceptionInfo) {
         {
             void* faulting_address = (void*)pExceptionInfo->ExceptionRecord->ExceptionInformation[1];
             StackTraceBuffer stack_trace_buffer;
-            const size_t buffer_size = 1024 * 10;
-            char *error_buffer = (char *)malloc(buffer_size);
-            if (error_buffer == NULL)
+            if(!finit_stack_trace_buffer(&stack_trace_buffer, buffer_size))
             {
-                caml_failwith("Malloc failed to allocate memory for exception stack trace");
-                return EXCEPTION_CONTINUE_SEARCH;
+              caml_failwith("Can't create stack trace buffer");
+              return EXCEPTION_CONTINUE_SEARCH; 
             }
-            stack_trace_buffer.capacity = buffer_size;
-            stack_trace_buffer.offset = 0;
-            stack_trace_buffer.buffer = error_buffer;
-            stack_trace_buffer.buffer[0] = '0';
             create_stacktrace(&stack_trace_buffer);
 
             caml_raise_with_string(*caml_named_value(CAML_ERROR_ID), stack_trace_buffer.buffer); 
@@ -173,10 +182,39 @@ LONG WINAPI windows_exception_handler(PEXCEPTION_POINTERS pExceptionInfo) {
 #else
 #define PLATFORM_UNIX
 #include <signal.h>
-  void unix_signal_handler(int sig, siginfo_t *si, void *unused) {
-    caml_failwith("Exception occured");
-    _exit(1);
+#include <execinfo.h>
+#include <stdlib.h>
+#include <unistd.h>
+
+void unix_signal_handler(int sig, siginfo_t *si, void *unused) {
+
+  StackTraceBuffer stack_trace_buffer;
+  if (!finit_stack_trace_buffer(&stack_trace_buffer, buffer_size)) {
+    caml_failwith("Can't create stack trace buffer");
+    return;
   }
+
+  void* trace[20];
+  size_t trace_size = backtrace(trace, 20);
+
+  if(trace_size == 0)
+  {
+    caml_failwith("Couldn't get backtrace");
+    return;
+  }
+
+  append_to_buffer(&stack_trace_buffer, "Stack trace:\n");
+  
+  char** pSymbols = backtrace_symbols(trace, trace_size);
+  for(int i = 0; i < trace_size; ++i)
+  {
+    append_to_buffer(&stack_trace_buffer, pSymbols[i]);
+  }
+  free(pSymbols);
+
+  caml_raise_with_string(*caml_named_value(CAML_ERROR_ID),
+                         stack_trace_buffer.buffer);
+}
 #endif
 
 
@@ -186,11 +224,11 @@ CAMLprim value caml_setup_stub_exception_handler()
 #ifdef PLATFORM_WINDOWS
   AddVectoredExceptionHandler(1, windows_exception_handler);
 #elif defined(PLATFORM_UNIX)
-  struct sigaction sa;
-  sa.sa_flags = SA_SIGINFO;
-  sigemptyset(&sa.sa_mask);
-  sa.sa_sigaction = unix_signal_handler;
-  sigaction(SIGSEGV, &sa, NULL);
+  // struct sigaction sa;
+  // sa.sa_flags = SA_SIGINFO;
+  // sigemptyset(&sa.sa_mask);
+  // sa.sa_sigaction = unix_signal_handler;
+  // sigaction(SIGSEGV, &sa, NULL);
 #endif
   CAMLreturn(Val_unit);
 }

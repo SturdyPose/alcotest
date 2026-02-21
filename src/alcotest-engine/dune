@@ -20,13 +20,13 @@
  (target c_library_flags.sexp)
  (enabled_if (= %{os_type} Win32))
  (action
-  (write-file %{target} "-ldbghelp")))
+  (write-file %{target} "(-ldbghelp)")))
 
 (rule
  (target c_library_flags.sexp)
  (enabled_if (<> %{os_type} Win32))
  (action
-  (write-file %{target} "")))
+  (write-file %{target} "()")))
 
 (library
  (name alcotest_engine)
