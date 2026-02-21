@@ -6,9 +6,11 @@ let () =
     try
       segfault_call ();
       fail "Should segfault"
-    with e -> 
-      print_endline (Printexc.to_string e);
+    with 
+    | SegFault _ ->
       (check pass) "Exception during nullptr dereference should happen" () ()
+    | _ -> 
+      fail "Should call segfault exception"
   in
   run __FILE__
     [

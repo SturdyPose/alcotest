@@ -43,6 +43,8 @@ void append_to_buffer(StackTraceBuffer *sb, const char *format, ...) {
   }
 }
 
+static const char *CAML_ERROR_ID = "segfault exception";
+
 #if defined(_WIN32) || defined(_WIN64)
 #define PLATFORM_WINDOWS
 #include <windows.h>
@@ -161,10 +163,7 @@ LONG WINAPI windows_exception_handler(PEXCEPTION_POINTERS pExceptionInfo) {
             stack_trace_buffer.buffer[0] = '0';
             create_stacktrace(&stack_trace_buffer);
 
-            // printf("Printing stacktrace...\n");
-            // printf("%s\n", stack_trace_buffer.buffer);
-
-            caml_raise_with_string(*caml_named_value("segfault exception"), stack_trace_buffer.buffer); 
+            caml_raise_with_string(*caml_named_value(CAML_ERROR_ID), stack_trace_buffer.buffer); 
             free(stack_trace_buffer.buffer);
         }
         default: break;
