@@ -174,6 +174,7 @@ LONG WINAPI windows_exception_handler(PEXCEPTION_POINTERS pExceptionInfo) {
 
             caml_raise_with_string(*caml_named_value(CAML_ERROR_ID), stack_trace_buffer.buffer); 
             free(stack_trace_buffer.buffer);
+            ExitProcess(STATUS_ACCESS_VIOLATION);
         }
         default: break;
     }
@@ -203,17 +204,18 @@ void unix_signal_handler(int sig, siginfo_t *si, void *unused) {
     return;
   }
 
-  append_to_buffer(&stack_trace_buffer, "Stack trace:\n");
+  append_to_buffer(&stack_trace_buffer, "Caught Violation access, here's stack trace:\n");
   
   char** pSymbols = backtrace_symbols(trace, trace_size);
   for(int i = 0; i < trace_size; ++i)
   {
-    append_to_buffer(&stack_trace_buffer, pSymbols[i]);
+    append_to_buffer(&stack_trace_buffer, "%s\n", pSymbols[i]);
   }
   free(pSymbols);
 
   caml_raise_with_string(*caml_named_value(CAML_ERROR_ID),
                          stack_trace_buffer.buffer);
+  exit(WEXITED);
 }
 #endif
 
@@ -224,11 +226,11 @@ CAMLprim value caml_setup_stub_exception_handler()
 #ifdef PLATFORM_WINDOWS
   AddVectoredExceptionHandler(1, windows_exception_handler);
 #elif defined(PLATFORM_UNIX)
-  // struct sigaction sa;
-  // sa.sa_flags = SA_SIGINFO;
-  // sigemptyset(&sa.sa_mask);
-  // sa.sa_sigaction = unix_signal_handler;
-  // sigaction(SIGSEGV, &sa, NULL);
+  struct sigaction sa;
+  sa.sa_flags = SA_SIGINFO;
+  sigemptyset(&sa.sa_mask);
+  sa.sa_sigaction = unix_signal_handler;
+  sigaction(SIGSEGV, &sa, NULL);
 #endif
   CAMLreturn(Val_unit);
 }

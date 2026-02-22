@@ -1,16 +1,17 @@
 external segfault_call : unit -> unit = "caml_segfault_call" 
 
+(* This test should fail *)
 let () =
   let open Alcotest in
   let call_seg () = 
     try
       segfault_call ();
-      fail "Should segfault"
+      (check pass) "Should get segfault exception" () ()
     with 
     | SegFault _ ->
-      (check pass) "Exception during nullptr dereference should happen" () ()
+      fail "Got segfault"
     | _ -> 
-      fail "Should call segfault exception"
+      (check pass) "Should get segfault exception" () ()
   in
   run __FILE__
     [
