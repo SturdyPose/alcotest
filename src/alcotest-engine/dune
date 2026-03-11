@@ -34,6 +34,7 @@
   (language c)
   (names stack_error_reporter))
   (c_library_flags (:standard (:include c_library_flags.sexp)))
+ (js_of_ocaml (javascript_files stack_error_reporter.js))
  (libraries
   alcotest.stdlib_ext
   fmt
