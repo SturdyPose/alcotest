@@ -15,7 +15,6 @@
    %{target}
    "let get ?__FUNCTION__ () =\n  ignore __FUNCTION__;\n  None\n")))
 
-
 (rule
  (target c_library_flags.sexp)
  (enabled_if (= %{os_type} Win32))
@@ -24,7 +23,7 @@
 
 (rule
  (target c_library_flags.sexp)
- (enabled_if (<> %{os_type} Win32))
+ (enabled_if (or (<> %{os_type} Win32) (= %{architecture} "js")))
  (action
   (write-file %{target} "()")))
 

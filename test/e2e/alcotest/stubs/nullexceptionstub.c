@@ -8,7 +8,7 @@
 #include <caml/misc.h>
 #include <caml/mlvalues.h>
 
-value caml_segfault_call()
+value caml_segfault_call(void)
 {
     CAMLparam0();
     int* someVal = NULL;
