@@ -14,7 +14,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-const size_t buffer_size = 1024 * 10;
+#define CRASH_BUFFER_SIZE 10240
+static char crash_buffer[CRASH_BUFFER_SIZE];
+
 typedef struct {
   char *buffer;
   size_t capacity;
@@ -23,10 +25,8 @@ typedef struct {
 
 static bool finit_stack_trace_buffer(StackTraceBuffer *pStackTraceBuffer,
                                      size_t size) {
-  char *error_buffer = (char *)malloc(size);
-  if (error_buffer == NULL) {
-    return false;
-  }
+  char *error_buffer = crash_buffer;
+
   pStackTraceBuffer->capacity = size;
   pStackTraceBuffer->offset = 0;
   pStackTraceBuffer->buffer = error_buffer;
@@ -158,7 +158,7 @@ LONG WINAPI windows_exception_handler(PEXCEPTION_POINTERS pExceptionInfo) {
     void *faulting_address =
         (void *)pExceptionInfo->ExceptionRecord->ExceptionInformation[1];
     StackTraceBuffer stack_trace_buffer;
-    if (!finit_stack_trace_buffer(&stack_trace_buffer, buffer_size)) {
+    if (!finit_stack_trace_buffer(&stack_trace_buffer, CRASH_BUFFER_SIZE)) {
       caml_failwith("Can't create stack trace buffer");
       return EXCEPTION_CONTINUE_SEARCH;
     }
@@ -186,7 +186,7 @@ LONG WINAPI windows_exception_handler(PEXCEPTION_POINTERS pExceptionInfo) {
 static void unix_signal_handler(int sig, siginfo_t *si, void *unused) {
 
   StackTraceBuffer stack_trace_buffer;
-  if (!finit_stack_trace_buffer(&stack_trace_buffer, buffer_size)) {
+  if (!finit_stack_trace_buffer(&stack_trace_buffer, CRASH_BUFFER_SIZE)) {
     caml_failwith("Can't create stack trace buffer");
     return;
   }
@@ -224,6 +224,7 @@ CAMLprim value caml_setup_stub_exception_handler(void) {
   sigemptyset(&sa.sa_mask);
   sa.sa_sigaction = unix_signal_handler;
   sigaction(SIGSEGV, &sa, NULL);
+  sigaction(SIGBUS, &sa, NULL); // Catch SIGBUS as well for macOS
 #endif
   CAMLreturn(Val_unit);
 }
