@@ -1,18 +1,9 @@
 // caml headers
 #include <caml/alloc.h>
 #include <caml/callback.h>
-#include <caml/config.h>
-#include <caml/custom.h>
 #include <caml/fail.h>
-#include <caml/intext.h>
-#include <caml/memory.h>
-#include <caml/misc.h>
-#include <caml/mlvalues.h>
 
-#include <stdarg.h>
 #include <stdbool.h>
-#include <stdio.h>
-#include <stdlib.h>
 
 #define CRASH_BUFFER_SIZE 10240
 static char crash_buffer[CRASH_BUFFER_SIZE];
@@ -60,7 +51,6 @@ static void append_to_buffer(StackTraceBuffer *sb, const char *format, ...) {
 static const char *CAML_ERROR_ID = "segfault exception";
 
 #if defined(_WIN32)
-#define PLATFORM_WINDOWS
 #include <dbghelp.h>
 #include <excpt.h>
 #include <windows.h>
@@ -117,7 +107,7 @@ static void create_stacktrace(StackTraceBuffer *pStackTraceBuffer) {
 
     DWORD64 symbol_addr = stack.AddrPC.Offset;
     DWORD64 displacement = 0;
-    _Alignas(SYMBOL_INFO *)
+    alignas(SYMBOL_INFO *)
         symbol_buffer[sizeof(SYMBOL_INFO) + MAX_SYM_NAME * sizeof(TCHAR)] = {0};
     SYMBOL_INFO *symbol = (SYMBOL_INFO *)symbol_buffer;
     symbol->SizeOfStruct = sizeof(SYMBOL_INFO);
@@ -151,7 +141,8 @@ static void create_stacktrace(StackTraceBuffer *pStackTraceBuffer) {
   SymCleanup(process);
 }
 
-LONG WINAPI windows_exception_handler(PEXCEPTION_POINTERS pExceptionInfo) {
+static LONG WINAPI
+windows_exception_handler(const EXCEPTION_POINTERS *pExceptionInfo) {
   const DWORD exceptionCode = pExceptionInfo->ExceptionRecord->ExceptionCode;
   switch (exceptionCode) {
   case EXCEPTION_ACCESS_VIOLATION: {
@@ -175,7 +166,6 @@ LONG WINAPI windows_exception_handler(PEXCEPTION_POINTERS pExceptionInfo) {
   return EXCEPTION_CONTINUE_SEARCH;
 }
 #else
-#define PLATFORM_UNIX
 #include <execinfo.h>
 #include <signal.h>
 #include <stdlib.h>
@@ -200,7 +190,7 @@ static void unix_signal_handler(int sig, siginfo_t *si, void *unused) {
   }
 
   append_to_buffer(&stack_trace_buffer,
-                   "Caught Violation access, here's stack trace:\n");
+                   "Access violation caught, stacktrace:\n");
 
   char **pSymbols = backtrace_symbols(trace, trace_size);
   for (int i = 0; i < trace_size; ++i) {
@@ -216,9 +206,9 @@ static void unix_signal_handler(int sig, siginfo_t *si, void *unused) {
 
 CAMLprim value caml_setup_stub_exception_handler(void) {
   CAMLparam0();
-#ifdef PLATFORM_WINDOWS
+#if defined(_WIN32)
   AddVectoredExceptionHandler(1, windows_exception_handler);
-#elif defined(PLATFORM_UNIX)
+#else
   struct sigaction sa;
   sa.sa_flags = SA_SIGINFO | SA_ONSTACK;
   sigemptyset(&sa.sa_mask);
