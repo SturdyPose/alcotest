@@ -10,7 +10,7 @@
  (target stubs.actual)
  (action
    (with-accepted-exit-codes
-   (or 0 1 2 124 125)
+   (or 1 2 124 125)
    (with-outputs-to
       %{target}
       (run %{dep:nullexception.exe} --color=auto)))))

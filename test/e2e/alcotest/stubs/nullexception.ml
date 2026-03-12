@@ -11,7 +11,7 @@ let () =
     | SegFault _ ->
       fail "Got segfault"
     | _ -> 
-      (check pass) "Should get segfault exception" () ()
+      fail "Got uncategorized exception"
   in
   run __FILE__
     [
