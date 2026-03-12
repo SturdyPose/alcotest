@@ -16,11 +16,9 @@ typedef struct {
 
 static bool finit_stack_trace_buffer(StackTraceBuffer *pStackTraceBuffer,
                                      size_t size) {
-  char *error_buffer = crash_buffer;
-
   pStackTraceBuffer->capacity = size;
   pStackTraceBuffer->offset = 0;
-  pStackTraceBuffer->buffer = error_buffer;
+  pStackTraceBuffer->buffer = crash_buffer;
   pStackTraceBuffer->buffer[0] = '\0';
   return true;
 }
@@ -51,9 +49,9 @@ static void append_to_buffer(StackTraceBuffer *sb, const char *format, ...) {
 static const char *CAML_ERROR_ID = "segfault exception";
 
 #if defined(_WIN32)
+#include <windows.h>
 #include <dbghelp.h>
 #include <excpt.h>
-#include <windows.h>
 
 // Stacktrace collection inspired by
 // https://smhk.net/note/2025/03/c-stack-trace-in-windows/
@@ -107,8 +105,7 @@ static void create_stacktrace(StackTraceBuffer *pStackTraceBuffer) {
 
     DWORD64 symbol_addr = stack.AddrPC.Offset;
     DWORD64 displacement = 0;
-    alignas(SYMBOL_INFO *)
-        symbol_buffer[sizeof(SYMBOL_INFO) + MAX_SYM_NAME * sizeof(TCHAR)] = {0};
+    alignas(SYMBOL_INFO *) char symbol_buffer[sizeof(SYMBOL_INFO) + MAX_SYM_NAME * sizeof(TCHAR)] = {0};
     SYMBOL_INFO *symbol = (SYMBOL_INFO *)symbol_buffer;
     symbol->SizeOfStruct = sizeof(SYMBOL_INFO);
     symbol->MaxNameLen = MAX_SYM_NAME;
@@ -142,7 +139,7 @@ static void create_stacktrace(StackTraceBuffer *pStackTraceBuffer) {
 }
 
 static LONG WINAPI
-windows_exception_handler(const EXCEPTION_POINTERS *pExceptionInfo) {
+windows_exception_handler(EXCEPTION_POINTERS *pExceptionInfo) {
   const DWORD exceptionCode = pExceptionInfo->ExceptionRecord->ExceptionCode;
   switch (exceptionCode) {
   case EXCEPTION_ACCESS_VIOLATION: {
