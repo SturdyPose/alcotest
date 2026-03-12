@@ -220,7 +220,7 @@ CAMLprim value caml_setup_stub_exception_handler(void) {
   AddVectoredExceptionHandler(1, windows_exception_handler);
 #elif defined(PLATFORM_UNIX)
   struct sigaction sa;
-  sa.sa_flags = SA_SIGINFO;
+  sa.sa_flags = SA_SIGINFO | SA_ONSTACK;
   sigemptyset(&sa.sa_mask);
   sa.sa_sigaction = unix_signal_handler;
   sigaction(SIGSEGV, &sa, NULL);
