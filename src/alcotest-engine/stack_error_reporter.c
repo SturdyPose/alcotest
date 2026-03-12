@@ -2,7 +2,10 @@
 #include <caml/alloc.h>
 #include <caml/callback.h>
 #include <caml/fail.h>
+#include <caml/memory.h>
+#include <caml/mlvalues.h>
 
+#include <stdalign.h>
 #include <stdbool.h>
 
 #define CRASH_BUFFER_SIZE 10240
@@ -49,9 +52,11 @@ static void append_to_buffer(StackTraceBuffer *sb, const char *format, ...) {
 static const char *CAML_ERROR_ID = "segfault exception";
 
 #if defined(_WIN32)
+// clang-format off
 #include <windows.h>
 #include <dbghelp.h>
 #include <excpt.h>
+// clang-format on
 
 // Stacktrace collection inspired by
 // https://smhk.net/note/2025/03/c-stack-trace-in-windows/
@@ -105,7 +110,8 @@ static void create_stacktrace(StackTraceBuffer *pStackTraceBuffer) {
 
     DWORD64 symbol_addr = stack.AddrPC.Offset;
     DWORD64 displacement = 0;
-    alignas(SYMBOL_INFO *) char symbol_buffer[sizeof(SYMBOL_INFO) + MAX_SYM_NAME * sizeof(TCHAR)] = {0};
+    alignas(SYMBOL_INFO *) char
+        symbol_buffer[sizeof(SYMBOL_INFO) + MAX_SYM_NAME * sizeof(TCHAR)] = {0};
     SYMBOL_INFO *symbol = (SYMBOL_INFO *)symbol_buffer;
     symbol->SizeOfStruct = sizeof(SYMBOL_INFO);
     symbol->MaxNameLen = MAX_SYM_NAME;
